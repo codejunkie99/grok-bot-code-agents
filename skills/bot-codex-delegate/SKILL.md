@@ -28,7 +28,7 @@ The installer is idempotent. It runs `codex app-server --listen ws://127.0.0.1:4
 session, adds a watchdog that recreates the session or kills a hung server, a control script
 (`codex-app-server-ctl status|start|stop|restart|schema`), logs under `~/logs/`, and the
 `codex-sessions` helper. Settings come from env vars (see the script header) and are saved to
-`~/.codex-delegate/env.sh`; `CODEX_APP_SERVER_URL` changes the endpoint (loopback only, since
+`~/.codex-delegate/env.sh`; `CODEX_APP_SERVER_URL` changes the listen endpoint (loopback only, since
 the server has no auth). It leaves `CODEX_HOME` alone, so the server shares the CLI's login,
 config and session history.
 
@@ -56,14 +56,38 @@ WebSocket, JSON-RPC 2.0, one JSON message per text frame. Health: `/readyz`, `/h
 - With approval policy `on-request`, the server may send approval requests (commands, file
   changes) to the client. The driver must answer them (accept or decline) or the turn waits.
 
-A stdlib-only driver will ship as `scripts/codex_ws.py` (coming soon). Until then, use any
-WebSocket JSON-RPC client that follows the steps above.
+### Driver: `scripts/codex_ws.py`
+One stdlib-only Python file ([docs](../../scripts/codex_ws.README.md)). Global flags go **before**
+the subcommand; events stream to stderr, JSON results to stdout.
+
+```bash
+D=bot-codex-delegate/scripts/codex_ws.py
+python3 $D start --cwd <repo> [--model <model>] [--effort medium] ["<first task>"]   # prints threadId
+python3 $D turn <threadId> "<task>" [--effort medium] [--steer "<extra>"] [--interrupt-after SEC]
+python3 $D steer <threadId> <turnId> "<extra>"      # from another process, mid-turn
+python3 $D interrupt <threadId> <turnId>
+python3 $D list [--cwd <repo>] [--limit 20]         # read-only
+python3 $D read <threadId> [--turns]                # read-only
+python3 $D --state threads.json saved               # optional local registry (start --label ...)
+```
+
+- Endpoint: `--host`/`--port` or `CODEX_WS_HOST`/`CODEX_WS_PORT` (default `127.0.0.1:4500`).
+- Model: `start --model` or `CODEX_WS_MODEL`; unset means the server's default.
+- Registry: `--state FILE` or `CODEX_WS_STATE`; off unless set.
+- Safe defaults: `workspace-write` with network, `approvalPolicy: on-request`, and approval
+  requests are **declined**. `--approve accept|acceptForSession` answers them yes; `--no-network`
+  or `--sandbox read-only` tighten it.
+- `start --danger-full-access` (and `--approval never`) are opt-in only and need the user's
+  explicit OK: Codex could then read, change or send any file the server's user can reach.
+- `turn` resumes the thread first, prints the `turnId` right away, and exits 0 on `completed` or
+  `interrupted`.
 
 ## 3. Dispatch and get woken
 1. Find or create the session (section 5).
-2. Start the turn with **one** Shell call, `block_until_ms: 0`, that connects, sends
-   `turn/start`, waits for `turn/completed`, and prints the result (final message, status,
-   changed files). Log the stream to a file.
+2. Start the turn with **one** Shell call, `block_until_ms: 0`, that waits for
+   `turn/completed`, for example:
+   `python3 codex_ws.py turn <threadId> "<task>" --effort medium 2> /tmp/<name>.events.log`
+   It prints the `turnId` first and the final message and status at the end.
 3. **Verify the launch**: check once that the turn started (a `turn/started` event or the log
    growing). Then end your turn. Do not poll, and do not open a turn just to check progress.
 4. When the Shell call finishes, you are woken. Review the diff yourself, then report or send the
@@ -72,10 +96,10 @@ WebSocket JSON-RPC client that follows the steps above.
 Keep your own queue for follow-ups and send the next `turn/start` after `turn/completed`.
 
 ## 4. Steer and interrupt
-- **Steer** (add instructions to a running turn): `turn/steer {threadId, expectedTurnId, input}`.
-  `expectedTurnId` must be the active turn's id.
-- **Interrupt**: `turn/interrupt {threadId, turnId}` → `turn/completed` with
-  `status: "interrupted"`. The thread stays usable.
+- **Steer** (add instructions to a running turn): `turn/steer {threadId, expectedTurnId, input}`,
+  or `codex_ws.py steer <threadId> <turnId> "<text>"`. `expectedTurnId` must be the active turn.
+- **Interrupt**: `turn/interrupt {threadId, turnId}` (`codex_ws.py interrupt <threadId> <turnId>`)
+  → `turn/completed` with `status: "interrupted"`. The thread stays usable.
 - **Interrupt is not a hard stop.** Commands already scheduled in the interrupted turn can keep
   running and land later. After an interrupt, check the working tree (`git status`, `git diff`)
   before sending more, and filter events by `turnId`. If side effects must stop for sure, abandon

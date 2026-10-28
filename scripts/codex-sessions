@@ -6,7 +6,8 @@
   codex-sessions name <threadId> <name>                    thread/name/set
   codex-sessions compact <threadId>                        thread/compact/start
   codex-sessions archive|unarchive <threadId>              thread/archive / thread/unarchive
-  Global: --url ws://HOST:PORT  (or env CODEX_APP_SERVER_URL; default ws://127.0.0.1:4500)
+  Global: --url ws://HOST:PORT  (or env CODEX_APP_SERVER_URL, or CODEX_WS_HOST/CODEX_WS_PORT
+                                 as used by codex_ws.py; default ws://127.0.0.1:4500)
           --json                 print raw thread objects
 
 Lists every source kind (cli, vscode, exec, appServer), so `codex exec` sessions show up too.
@@ -160,7 +161,10 @@ def main(argv):
     if pop_opt(args, "-h") or pop_opt(args, "--help"):
         print(__doc__)
         return 0
-    url = pop_opt(args, "--url", True) or os.environ.get("CODEX_APP_SERVER_URL") or DEFAULT_URL
+    url = pop_opt(args, "--url", True) or os.environ.get("CODEX_APP_SERVER_URL")
+    if not url and (os.environ.get("CODEX_WS_HOST") or os.environ.get("CODEX_WS_PORT")):
+        url = f"ws://{os.environ.get('CODEX_WS_HOST', '127.0.0.1')}:{os.environ.get('CODEX_WS_PORT', '4500')}"
+    url = url or DEFAULT_URL
     as_json = bool(pop_opt(args, "--json"))
     include_all = bool(pop_opt(args, "--all"))
     archived = bool(pop_opt(args, "--archived"))

@@ -40,6 +40,8 @@ The installer starts the server with sandbox `workspace-write` **with network ac
 
 Full access is **opt-in only**: `CODEX_DELEGATE_FULL_ACCESS=1` switches the server to `danger-full-access` with approvals `never`. Then Codex can read and change any file your user can, including SSH keys, API tokens and other projects on the machine. Only turn it on for a throwaway computer and work you trust.
 
+The driver has the same defaults per thread, and it **declines** approval requests unless you pass `--approve accept` (or `acceptForSession`). `--no-network` and `--sandbox read-only` tighten it; `start --danger-full-access` is the opt-in escape hatch with the same risk as above.
+
 The endpoint, state dir, log path, tmux session name and model are all env vars; see the top of [`install-codex-app-server.sh`](scripts/install-codex-app-server.sh). The server only listens on loopback because it has no auth.
 
 ## Install
@@ -64,7 +66,17 @@ What's in here:
 - [`skills/bot-codex-delegate/SKILL.md`](skills/bot-codex-delegate/SKILL.md): the workflow and rules for the bot.
 - [`scripts/install-codex-app-server.sh`](scripts/install-codex-app-server.sh): app-server in tmux + watchdog + `codex-app-server-ctl status|start|stop|restart|schema`, logs in `~/logs/`.
 - [`scripts/codex-sessions`](scripts/codex-sessions): list, find, name, compact and archive sessions (Python stdlib only).
-- `scripts/codex_ws.py`: a stdlib-only driver for start / turn / steer / interrupt / list / read. Coming soon.
+- [`scripts/codex_ws.py`](scripts/codex_ws.py): stdlib-only driver for start / turn / steer / interrupt / list / read ([docs](scripts/codex_ws.README.md)).
+
+```bash
+python3 scripts/codex_ws.py start --cwd ./my-repo "first task"      # prints threadId
+python3 scripts/codex_ws.py turn <threadId> "next task" --effort medium
+python3 scripts/codex_ws.py steer <threadId> <turnId> "also update the changelog"
+python3 scripts/codex_ws.py interrupt <threadId> <turnId>
+python3 scripts/codex_ws.py list --cwd ./my-repo
+```
+
+Driver settings: `--host`/`--port` (`CODEX_WS_HOST`/`CODEX_WS_PORT`, default `127.0.0.1:4500`), `start --model` (`CODEX_WS_MODEL`, default: the server's), `--state FILE` (`CODEX_WS_STATE`, off by default). Global flags go before the subcommand.
 
 ---
 
@@ -83,7 +95,7 @@ What's in here:
 
 **安全默认值。** 默认沙箱 `workspace-write` 且允许联网，审批策略 `on-request`：Codex 在项目目录里写文件，越界之前先问。模型用你自己 Codex 配置里的。完全权限只能显式开启：`CODEX_DELEGATE_FULL_ACCESS=1` 会改成 `danger-full-access` + 审批 `never`，这时 Codex 能读写你这个用户能碰到的任何文件，包括别处的 SSH 密钥、API token 和其他项目。只在一次性的机器、可信的任务上用。地址、目录、日志、tmux 会话名、模型都能用环境变量改，服务只监听本机（它没有鉴权）。
 
-**安装。** 把上面那个 `SKILL.md` 链接发给你的 Grok Bot，让它存成技能。技能会让 bot 在自己电脑上运行 `scripts/install-codex-app-server.sh`（可重复运行），需要先装好并登录 Codex CLI。驱动脚本 `scripts/codex_ws.py` 即将上线。
+**安装。** 把上面那个 `SKILL.md` 链接发给你的 Grok Bot，让它存成技能。技能会让 bot 在自己电脑上运行 `scripts/install-codex-app-server.sh`（可重复运行），需要先装好并登录 Codex CLI。驱动脚本 `scripts/codex_ws.py`（只用标准库）负责 start / turn / steer / interrupt / list / read，地址用 `--host`/`--port` 或 `CODEX_WS_HOST`/`CODEX_WS_PORT`，模型用 `start --model` 或 `CODEX_WS_MODEL`（默认用服务端的）。驱动默认拒绝审批请求，`--approve accept` 才放行；`--danger-full-access` 同样只能显式开启。
 
 ## License
 
