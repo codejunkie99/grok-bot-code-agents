@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""codex-turn: run ONE Codex turn and block until it really finishes (stdlib only).
+
+Built on scripts/codex_ws.py (imported as a library, same flags and env vars). Unlike
+`codex_ws.py turn`, which gives up with TimeoutError after ~15 minutes in total, this keeps one
+connection open and waits as long as the turn runs, up to --max-hours. Made for a waiter
+subagent that sits in a foreground Shell call so the computer stays awake.
+
+  codex-turn <threadId> "<prompt>" [--effort E]                 # existing thread (resumed first)
+  codex-turn --new --cwd DIR [--model M] [--effort E] "<prompt>" # new thread, safe defaults
+  Global: --host/--port (CODEX_WS_HOST/CODEX_WS_PORT), --approve accept|acceptForSession|decline|cancel
+          --max-hours H (default 6)   --interrupt-at-deadline   -v
+
+stdout (JSON lines): {"threadId","turnId"} right away, then a summary:
+  {"threadId","turnId","status","error","durationMs","finalMessage","changedFiles"}
+Exit: 0 completed/interrupted, 1 failed, 2 connection/RPC error ({"status":"error"}), 3 deadline hit (turn left running unless
+--interrupt-at-deadline). New threads use workspace-write + network, approvalPolicy on-request,
+approval requests declined; for anything else create the thread with codex_ws.py start first.
+"""
+import argparse, json, os, subprocess, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import codex_ws  # noqa: E402
+
+
+def changed_files(cwd):
+    if not cwd:
+        return None
+    try:
+        out = subprocess.run(["git", "-C", cwd, "status", "--porcelain"], capture_output=True,
+                             text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return [l[3:] for l in out.stdout.splitlines()] if out.returncode == 0 else None
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Run one Codex turn and wait until it finishes")
+    ap.add_argument("--host", default=codex_ws.DEFAULT_HOST)
+    ap.add_argument("--port", type=int, default=codex_ws.DEFAULT_PORT)
+    ap.add_argument("--approve", default="decline", choices=["accept", "acceptForSession", "decline", "cancel"])
+    ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--new", action="store_true", help="start a new thread (needs --cwd)")
+    ap.add_argument("--cwd", help="working tree for a new thread")
+    ap.add_argument("--model", default=codex_ws.DEFAULT_MODEL, help="new thread only; default: server's")
+    ap.add_argument("--effort")
+    ap.add_argument("--max-hours", type=float, default=6.0)
+    ap.add_argument("--interrupt-at-deadline", action="store_true")
+    ap.add_argument("args", nargs="+", help='<threadId> "<prompt>"  or, with --new,  "<prompt>"')
+    a = ap.parse_args(argv)
+    if a.new:
+        if not a.cwd or len(a.args) != 1:
+            ap.error('--new needs --cwd DIR and exactly one "<prompt>"')
+        thread, prompt = None, a.args[0]
+    else:
+        if len(a.args) != 2:
+            ap.error('expected <threadId> "<prompt>"')
+        thread, prompt = a.args
+
+    c = codex_ws.Codex(a.host, a.port, on_event=codex_ws.printer(a.verbose), approve=a.approve)
+    c.connect(name="codex-turn")
+    try:
+        if a.new:
+            r = c.thread_start(a.cwd, a.model, effort=a.effort)
+            thread, cwd = r["thread"]["id"], r.get("cwd") or os.path.abspath(a.cwd)
+        else:
+            r = c.thread_resume(thread, excludeTurns=True)
+            cwd = r.get("cwd") or (r.get("thread") or {}).get("cwd")
+        turn = c.turn_start(thread, prompt, effort=a.effort)["turn"]
+        print(json.dumps({"threadId": thread, "turnId": turn["id"]}), flush=True)
+
+        deadline, done = time.time() + a.max_hours * 3600, None
+        while done is None:
+            try:
+                done = c.wait_turn(thread, turn["id"], timeout=60)
+            except TimeoutError:
+                if time.time() < deadline:
+                    continue
+                if a.interrupt_at_deadline:
+                    c.turn_interrupt(thread, turn["id"])
+                    deadline = time.time() + 600      # give the interrupt time to land
+                    a.interrupt_at_deadline = False
+                    continue
+                print(json.dumps({"threadId": thread, "turnId": turn["id"], "status": "deadline",
+                                  "note": "turn may still be running"}), flush=True)
+                return 3
+        tt = done["turn"]
+        msgs = [i.get("text") for i in tt.get("items", []) if i.get("type") == "agentMessage"]
+        if not msgs:
+            for t_ in c.thread_read(thread, True)["thread"].get("turns", []):
+                if t_["id"] == turn["id"]:
+                    msgs = [i.get("text") for i in t_.get("items", []) if i.get("type") == "agentMessage"]
+        print(json.dumps({"threadId": thread, "turnId": tt["id"], "status": tt["status"],
+                          "error": tt.get("error"), "durationMs": tt.get("durationMs"),
+                          "finalMessage": msgs[-1] if msgs else None,
+                          "changedFiles": changed_files(cwd)}, ensure_ascii=False), flush=True)
+        return 0 if tt["status"] in ("completed", "interrupted") else 1
+    finally:
+        c.close()
+
+
+def run():
+    try:
+        return main()
+    except KeyboardInterrupt:
+        return 130
+    except (codex_ws.RPCError, codex_ws.WSClosed, OSError) as e:
+        print(json.dumps({"status": "error", "error": f"{type(e).__name__}: {e}"},
+                         ensure_ascii=False), flush=True)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(run())

@@ -1,19 +1,24 @@
 ---
 name: bot-codex-delegate
-description: Use this when a Grok Bot hands coding or other long work to a local Codex CLI on its cloud computer. The bot acts as the coordinator and a resident `codex app-server` is its worker: dispatch a turn in one background Shell call, get woken when it completes, steer or interrupt mid-turn, and reuse one named Codex session per project and task type.
+description: Use this when a Grok Bot hands coding or other long work to a local Codex CLI on its cloud computer. The bot acts as the coordinator and a resident `codex app-server` is its worker: hand each turn to one low-effort waiter subagent that blocks in foreground Shell calls (so the computer stays awake), get woken when it completes, steer or interrupt mid-turn, and reuse one named Codex session per project and task type.
 ---
 
 # Delegate work to a resident Codex app-server
 
 ## Why
 Driving Codex turn by turn and checking on it every round spends the bot's own quota just
-watching. Ending the conversation instead lets the cloud computer sleep, and Codex stalls with
-it. A progress-check routine starts a fresh bot each time, which re-reads the context and fires
-at imprecise times.
+watching. Ending the conversation instead lets the cloud computer sleep, and Codex freezes with
+it. A background Shell command (`block_until_ms: 0`) doesn't help: it is not bot activity, so
+the computer can still sleep while it runs. A progress-check routine starts a fresh bot each time,
+which re-reads the context, fires at imprecise times, and leaves gaps where the computer sleeps.
 
-What works: treat Codex like a cloud agent in a project. The bot dispatches a turn with **one
-background Shell call** that returns only when the turn completes. Completion wakes the bot. No
-turns are spent in between, so the quota goes to Codex doing the work.
+What works (the [bot-keepalive](https://github.com/realTaki/bot-keepalive) idea): a bot turn
+that is **waiting on a foreground tool call counts as active**, and one Shell call can block for
+up to 13 minutes. So the main bot hands each Codex turn to **one low-effort waiter subagent**.
+The waiter runs the blocking turn command in a foreground Shell call and keeps waiting on it,
+one tool call per ~13 minutes, until Codex finishes. The computer stays awake, the main chat
+stays free, and the main bot wakes once, when the waiter reports back. The quota goes to Codex
+doing the work, plus one cheap tool call per ~13 minutes.
 
 ## 1. Setup (once per computer)
 Codex CLI must be installed and logged in. Then:
@@ -80,20 +85,78 @@ python3 $D --state threads.json saved               # optional local registry (s
 - `start --danger-full-access` (and `--approval never`) are opt-in only and need the user's
   explicit OK: Codex could then read, change or send any file the server's user can reach.
 - `turn` resumes the thread first, prints the `turnId` right away, and exits 0 on `completed` or
-  `interrupted`.
+  `interrupted`. It blocks until `turn/completed`, **but gives up with `TimeoutError` after about
+  15 minutes in total** (same for `start ... "<prompt>"`). Fine for short turns; for anything
+  longer use `codex-turn` below.
 
-## 3. Dispatch and get woken
-1. Find or create the session (section 5).
-2. Start the turn with **one** Shell call, `block_until_ms: 0`, that waits for
-   `turn/completed`, for example:
-   `python3 codex_ws.py turn <threadId> "<task>" --effort medium 2> /tmp/<name>.events.log`
-   It prints the `turnId` first and the final message and status at the end.
-3. **Verify the launch**: check once that the turn started (a `turn/started` event or the log
-   growing). Then end your turn. Do not poll, and do not open a turn just to check progress.
-4. When the Shell call finishes, you are woken. Review the diff yourself, then report or send the
-   next turn.
+### Long turns: `scripts/codex-turn`
+A small wrapper over `codex_ws.py` (imported as a library, same `--host`/`--port`, env vars and
+safe defaults). It keeps one connection open and waits as long as the turn runs.
 
-Keep your own queue for follow-ups and send the next `turn/start` after `turn/completed`.
+```bash
+T=bot-codex-delegate/scripts/codex-turn
+python3 $T <threadId> "<task>" [--effort medium] [--max-hours 6] [--interrupt-at-deadline]
+python3 $T --new --cwd <repo> [--model <model>] [--effort medium] "<first task>"
+```
+
+stdout is JSON lines: `{"threadId","turnId"}` right away, then
+`{"threadId","turnId","status","error","durationMs","finalMessage","changedFiles"}`
+(`changedFiles` from `git status --porcelain` in the thread's `cwd`). Events go to stderr.
+Exit 0 on `completed`/`interrupted`, 1 on `failed`, 2 on a connection or RPC error (a
+`{"status":"error"}` line, e.g. unknown thread or server down), 3 when `--max-hours` passed (the turn is left
+running unless `--interrupt-at-deadline` was given). `--new` always uses the safe defaults; for
+other thread settings create the thread with `codex_ws.py start` first, then pass its id.
+
+## 3. Dispatch through a waiter subagent
+The main bot never waits on Codex itself, and never uses a `block_until_ms: 0` background
+command as its way of waiting (the computer can sleep under it and freeze Codex).
+
+1. Find or create the session (section 5). Make sure no other writer is in that working tree.
+2. Start **one** background executor subagent at **low effort** for this turn. Give it the
+   exact command, the deadline (an absolute time or N hours), whether it may interrupt at the
+   deadline, and these instructions:
+   - Run the command in a **foreground** Shell call with `block_until_ms: 760000` (the per-call
+     limit is 13 minutes), events to a log file:
+     ```bash
+     cd <repo> && python3 <path>/scripts/codex-turn <threadId> "<task>" --effort medium \
+       --max-hours <N> 2>> /tmp/<session-name>.events.log
+     ```
+     (`--new --cwd <repo> "<task>"` instead of `<threadId>` for a new session.)
+   - If the call hasn't returned after ~13 minutes, it moves to the background and keeps running.
+     Then wait on that same command with back-to-back `AwaitShell` calls (its shell id,
+     `block_until_ms: 760000`) until it exits. No pauses and no commentary between waits.
+     Never start the command a second time.
+   - After the first wait, check once that the turn really started: a `{"threadId","turnId"}`
+     line in the output, or `[turn/started]` in the log. If not, report the error and stop.
+   - Stop waiting at the deadline. Interrupt only if told to (`--interrupt-at-deadline`, or
+     `python3 <path>/scripts/codex_ws.py interrupt <threadId> <turnId>`). Otherwise leave the turn
+     running and say so.
+   - Only read; never edit files, commit, or start other work.
+   - Finish with a short summary: thread id, turn id, status, the last agent message (trimmed),
+     changed files, and the log path.
+3. End the main turn. The main chat stays free; the main bot wakes when the waiter finishes.
+4. Review the diff yourself, then report or send the next turn through a new waiter.
+
+Keep your own queue for follow-ups and send the next turn after the previous one completes.
+
+**Parallel turns.** One waiter per running Codex turn, and each parallel turn needs its own clone
+and session. For many jobs at once, you can skip the per-turn waiters: if bot-keepalive's global
+watcher is already running (or you start one), launch each turn detached and register its PID
+with it, following bot-keepalive's steps:
+
+```bash
+J=~/.keepalive/codex/<session-name>; mkdir -p "$J" ~/.keepalive/jobs && cd "$J"
+setsid nohup bash -c 'python3 <path>/scripts/codex-turn <threadId> "<task>" \
+  > out.json 2> events.log; touch DONE' < /dev/null > /dev/null 2>&1 &
+echo "$! $J" > ~/.keepalive/jobs/<session-name>
+```
+
+The job folder sits outside the repo, so `DONE` never lands in the working tree. The watcher
+keeps the computer awake until every job ends; read each `out.json` afterwards (the last line is
+the summary).
+
+**Cost.** One tool call per ~13 minutes at low effort, the same shape as bot-keepalive (its author
+measured about 1.8M tokens a day for a watcher running all day). Short turns cost one or two calls.
 
 ## 4. Steer and interrupt
 - **Steer** (add instructions to a running turn): `turn/steer {threadId, expectedTurnId, input}`,
@@ -131,11 +194,12 @@ session per project × task type**, and send every new prompt of that type into 
 - **Never two writers in one working tree.** Parallel work needs a separate clone and its own
   session.
 - Tell Codex explicitly whether to commit or push, and to which branch.
-- Dispatch with `block_until_ms: 0` and let completion wake you. No progress-check turns, no
-  detached `nohup` runs that finish silently.
+- Dispatch every turn through one low-effort waiter subagent doing foreground waits (or a
+  bot-keepalive registration). Never rely on a `block_until_ms: 0` background command, a
+  progress-check routine, or a detached run nobody watches.
+- One waiter per running turn. Never two waiters, or two writers, on one working tree.
 - Verify the launch before telling anyone it is running.
 - Keep safe defaults. Full access only when the user asks for it.
 - Never paste secrets into prompts or print auth files.
-- **Long runs**: the cloud computer sleeps when no bot turn is active, and a sleeping computer
-  freezes Codex too. For runs that must not pause, pair this with
-  [bot-keepalive](https://github.com/realTaki/bot-keepalive).
+- The cloud computer sleeps when no bot turn is active, and a sleeping computer freezes Codex
+  too. The waiter exists to prevent that; don't end it early.
