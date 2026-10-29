@@ -1,6 +1,7 @@
 ---
 name: bot-codex-delegate
-description: Use this when a Grok Bot hands coding or other long work to a local Codex CLI on its cloud computer. The bot acts as the coordinator and a resident `codex app-server` is its worker: hand each turn to one low-effort waiter subagent that blocks in foreground Shell calls (so the computer stays awake), get woken when it completes, steer or interrupt mid-turn, and reuse one named Codex session per project and task type.
+description: >-
+  Use when Grok Bot delegates coding or long work to a local Codex app-server on its cloud computer. Use a waiter to keep the computer awake and report completion, steer or interrupt turns, and reuse named sessions.
 ---
 
 # Delegate work to a resident Codex app-server
@@ -21,12 +22,12 @@ stays free, and the main bot wakes once, when the waiter reports back. The quota
 doing the work, plus one cheap tool call per ~13 minutes.
 
 ## 1. Setup (once per computer)
-Codex CLI must be installed and logged in. Then:
+Codex CLI must be installed and logged in. Clone only if the checkout does not already exist, then:
 
 ```bash
-git clone https://github.com/realTaki/bot-codex-delegate
-bash bot-codex-delegate/scripts/install-codex-app-server.sh
-codex-app-server-ctl status
+git clone https://github.com/codejunkie99/grok-bot-code-agents ~/grok-bot-code-agents
+bash ~/grok-bot-code-agents/scripts/install-codex-app-server.sh
+~/.local/bin/codex-app-server-ctl status
 ```
 
 The installer is idempotent. It runs `codex app-server --listen ws://127.0.0.1:4500` in a tmux
@@ -66,7 +67,7 @@ One stdlib-only Python file ([docs](../../scripts/codex_ws.README.md)). Global f
 the subcommand; events stream to stderr, JSON results to stdout.
 
 ```bash
-D=bot-codex-delegate/scripts/codex_ws.py
+D=~/grok-bot-code-agents/scripts/codex_ws.py
 python3 $D start --cwd <repo> [--model <model>] [--effort medium] ["<first task>"]   # prints threadId
 python3 $D turn <threadId> "<task>" [--effort medium] [--steer "<extra>"] [--interrupt-after SEC]
 python3 $D steer <threadId> <turnId> "<extra>"      # from another process, mid-turn
@@ -95,7 +96,7 @@ A small wrapper over `codex_ws.py` (imported as a library, same `--host`/`--port
 safe defaults). It keeps one connection open and waits as long as the turn runs.
 
 ```bash
-T=bot-codex-delegate/scripts/codex-turn
+T=~/grok-bot-code-agents/scripts/codex-turn
 python3 $T <threadId> "<task>" [--effort medium] [--max-hours 6] [--interrupt-at-deadline]
 python3 $T --new --cwd <repo> [--model <model>] [--effort medium] "<first task>"
 ```

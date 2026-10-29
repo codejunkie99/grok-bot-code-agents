@@ -1,109 +1,57 @@
-# bot-codex-delegate
+# Grok Bot Code Agents
 
-**Let your [Grok Bot](https://x.ai/bot) run Codex the way a Cursor Project runs cloud agents: hand off the work, get woken when it's done.**
+Give Grok Bot two ways to delegate coding work: a **Codex worker** on its cloud computer and **Claude Code cloud sessions** on Anthropic's infrastructure.
 
-The bot is the coordinator. A resident `codex app-server` on the bot's cloud computer is its worker. A low-effort waiter keeps the computer awake while Codex works. Codex spends the quota, not the bot.
+## One prompt to set it up
 
-[中文说明](#中文说明)
+Paste this into a Grok Bot conversation:
 
----
+```text
+Set up both coding delegation skills from https://github.com/codejunkie99/grok-bot-code-agents for my Grok Bot.
 
-## The problem
+Read the README and both SKILL.md files. Clone the repository to ~/grok-bot-code-agents (reuse an existing checkout without overwriting my changes), and save both skills by name in my Grok Bot private skill library. Keep the clone so the skills can use its scripts. If skill creation is unavailable, tell me exactly what to do instead of claiming it worked.
 
-As [@0xmomonifty](https://x.com/0xmomonifty/status/2115269648698716426) put it: when Grok Bot drives Codex, it babysits it.
+For Codex, check whether the CLI is installed and logged in, whether tmux, flock, curl and the other Linux prerequisites are available, and whether a server is already running. Follow the repository's safe-default setup. If something is missing, help me install it or sign in using the supported secure flow. Do not enable full access or change my existing server without asking. Check and report whether the server is ready.
 
-- **Babysitting burns bot quota.** The bot checks progress round after round. Its own quota goes to keeping Codex company.
-- **Letting go stalls Codex.** If the bot ends its conversation, the cloud computer goes to sleep when no bot turn is active, and Codex freezes with it.
-- **Background commands don't help.** A `block_until_ms: 0` Shell command isn't bot activity, so the computer can still fall asleep under it and freeze Codex.
-- **Routines don't help.** A progress-check routine is a fresh bot every time, re-reading the context, and it doesn't fire on time. The computer sleeps in the gaps.
+For Claude, guide me through creating an API-triggered Claude Code scheduled task, connecting the right repository, and securely providing its fire URL and token for use by the helper. Never ask me to paste a token into chat or print it. Check the Claude CLI login if follow-ups are wanted. Report anything that still needs my action.
 
-## The fix
-
-Treat Codex like a cloud agent inside a project.
-
-1. **A resident server.** `codex app-server` on `ws://127.0.0.1:4500` (WebSocket JSON-RPC, localhost only), kept up by tmux and a watchdog, with `/readyz` and `/healthz`. Same login and session history as the Codex CLI.
-2. **Dispatch to a waiter, then get woken.** Same trick as [bot-keepalive](https://github.com/realTaki/bot-keepalive): a bot turn waiting on a foreground tool call counts as active, and one Shell call can block for 13 minutes. The main bot hands each Codex turn to one low-effort waiter subagent. The waiter runs the blocking turn command (`scripts/codex-turn`) in a foreground Shell call, keeps waiting on it one call per ~13 minutes until Codex finishes or a deadline passes, then returns a short summary. The main chat stays free and wakes once, when the waiter is done.
-3. **Steer and interrupt.** `turn/steer` adds instructions to a running turn; `turn/interrupt` stops it and the thread stays usable. Interrupt isn't a hard stop: commands already scheduled can still land, so check the working tree after.
-4. **Reuse sessions.** One named session per project × task type (`<bot>-<project>-<task type>`), found with `thread/list`, picked up with `thread/resume`, compacted when it gets long, archived when done. Never two writers in one working tree.
-5. **Many jobs at once.** One waiter per running turn, each parallel turn in its own clone. Or, if a bot-keepalive watcher is running, launch the turns detached and register their PIDs with it instead.
-
-| | Babysitting | Progress routine | bot-codex-delegate |
-|---|---|---|---|
-| Computer stays awake while Codex works | Only while the bot is checking | No, sleeps between runs | Yes, the waiter is always in a foreground wait |
-| Main chat | Busy watching | Free | Free |
-| Bot quota while Codex works | A full model turn every check | A new bot, re-reading context, each run | One low-effort tool call per ~13 min |
-| Knows when Codex is done | Only when it checks | Only when the routine fires | When the command returns |
-| Steer or stop mid-turn | Awkward | No | `turn/steer`, `turn/interrupt` |
-| Codex context across tasks | Depends | Depends | One named session per task type |
-
-Cost has the same shape as bot-keepalive, whose author measured about 1.8M tokens a day for a watcher running all day. A short Codex turn costs the waiter one or two tool calls.
-
-## Safe defaults
-
-The installer starts the server with sandbox `workspace-write` **with network access** and approval policy `on-request`. Codex writes inside the project folder and asks before stepping outside it. The model comes from your own Codex config.
-
-Full access is **opt-in only**: `CODEX_DELEGATE_FULL_ACCESS=1` switches the server to `danger-full-access` with approvals `never`. Then Codex can read and change any file your user can, including SSH keys, API tokens and other projects on the machine. Only turn it on for a throwaway computer and work you trust.
-
-The driver has the same defaults per thread, and it **declines** approval requests unless you pass `--approve accept` (or `acceptForSession`). `--no-network` and `--sandbox read-only` tighten it; `start --danger-full-access` is the opt-in escape hatch with the same risk as above.
-
-The endpoint, state dir, log path, tmux session name and model are all env vars; see the top of [`install-codex-app-server.sh`](scripts/install-codex-app-server.sh). The server only listens on loopback because it has no auth.
-
-## Install
-
-Send your Grok Bot this link and ask it to save it as a skill:
-
-```
-https://github.com/realTaki/bot-codex-delegate/blob/main/skills/bot-codex-delegate/SKILL.md
+Do not launch a coding task, push changes, create a pull request, or spend usage on a live test until I give you a task. Finish by listing what is installed, what is ready, and any remaining setup steps.
 ```
 
-The skill tells the bot to set up the server on its computer (Codex CLI must be installed and logged in):
+One prompt starts the setup; provider login, repository access, and creating a Claude API trigger may require you to complete steps in the relevant account. Grok Bot can save skills across its bots using its [private skill library](https://docs.x.ai/grok-bot/skills-routines-and-automations#save-a-skill). Installation and live cloud execution have not yet been verified in Grok Bot.
+
+## Choose a worker
+
+| | Codex | Claude Code cloud |
+|---|---|---|
+| Where work runs | Codex app-server on the Grok Bot computer | Claude Code cloud session |
+| Dispatch | Local app-server and Python driver | Scheduled-task API trigger |
+| Follow-up | Steer or interrupt; resume named sessions | Queue a message with the logged-in Claude CLI |
+| Completion | A waiter observes the Codex turn and reports back | Open the session link; the documented trigger API does not report completion |
+| Needs | Codex CLI login; Linux environment with `tmux`, `flock`, `curl`, `ss` and Python 3 | Eligible Claude account, configured cloud scheduled task and per-trigger token; Claude CLI login for follow-ups |
+
+The Codex waiter keeps the Bot computer active while the locally running worker operates. A Claude cloud session runs independently of that computer. A Claude trigger response means the session was created, not that the work succeeded. The trigger is experimental, and each successful request creates a new session; do not automatically retry an ambiguous request. See [Claude's API documentation](https://platform.claude.com/docs/en/api/claude-code/routines-fire) and [cloud session docs](https://code.claude.com/docs/en/claude-code-on-the-web).
+
+## Manual setup and usage
+
+Read [the Codex skill](skills/bot-codex-delegate/SKILL.md) and [the Claude cloud skill](skills/bot-claude-cloud-delegate/SKILL.md). The Codex installer is intended for the Linux environment described above and listens on loopback only. It defaults to workspace-write and on-request approvals; full access is opt-in. The Codex driver declines approval requests unless configured otherwise. The Claude scheduled task's repository, permissions, connectors, and environment govern what a session can do. Never put credentials into prompts or the repository.
+
+For Claude, set `CLAUDE_ROUTINE_FIRE_URL` and `CLAUDE_ROUTINE_TOKEN` in the helper's execution environment using your platform's secure credential flow. The variables must be available in the same process that runs the helper. A typical dispatch looks like this:
 
 ```bash
-git clone https://github.com/realTaki/bot-codex-delegate
-bash bot-codex-delegate/scripts/install-codex-app-server.sh   # idempotent
-codex-app-server-ctl status
-codex-sessions                                                # named Codex sessions
+python3 ~/grok-bot-code-agents/skills/bot-claude-cloud-delegate/scripts/fire.py <<'TASK'
+Inspect the repository and implement the requested change. Run relevant tests.
+TASK
 ```
 
-What's in here:
-
-- [`skills/bot-codex-delegate/SKILL.md`](skills/bot-codex-delegate/SKILL.md): the workflow and rules for the bot.
-- [`scripts/install-codex-app-server.sh`](scripts/install-codex-app-server.sh): app-server in tmux + watchdog + `codex-app-server-ctl status|start|stop|restart|schema`, logs in `~/logs/`.
-- [`scripts/codex-sessions`](scripts/codex-sessions): list, find, name, compact and archive sessions (Python stdlib only).
-- [`scripts/codex-turn`](scripts/codex-turn): run one turn and block until it really finishes (up to `--max-hours`), then print a JSON summary with status, last agent message and changed files. This is what the waiter runs. `codex_ws.py turn` gives up after 15 minutes with no new event (configurable with `--turn-timeout`), so use this for long turns that may go quiet, or to cap a turn by wall-clock time.
-- [`scripts/codex_ws.py`](scripts/codex_ws.py): stdlib-only driver for start / turn / steer / interrupt / list / read ([docs](scripts/codex_ws.README.md)).
+The helper prints a session ID and URL when creation succeeds. Open the URL to follow progress and review results. For a follow-up, use the Claude CLI signed in to the same Claude account:
 
 ```bash
-python3 scripts/codex_ws.py start --cwd ./my-repo "first task"      # prints threadId
-python3 scripts/codex_ws.py turn <threadId> "next task" --effort medium
-python3 scripts/codex_ws.py steer <threadId> <turnId> "also update the changelog"
-python3 scripts/codex_ws.py interrupt <threadId> <turnId>
-python3 scripts/codex_ws.py list --cwd ./my-repo
+printf '%s' 'Please also check the regression tests.' | claude -p --cloud SESSION_ID --output-format json
 ```
 
-Driver settings: `--host`/`--port` (`CODEX_WS_HOST`/`CODEX_WS_PORT`, default `127.0.0.1:4500`), `start --model` (`CODEX_WS_MODEL`, default: the server's), `--state FILE` (`CODEX_WS_STATE`, off by default). Global flags go before the subcommand.
+This queues the message and does not wait for an answer. Consult the two skills for detailed instructions, failure handling, and limits. The original Codex project documentation is retained at [docs/UPSTREAM-CODEX.md](docs/UPSTREAM-CODEX.md).
 
----
+## Credits and license
 
-## 中文说明
-
-**让 Grok Bot 像 Cursor Project 用云端 agent 一样用 Codex：派活出去，干完了叫醒它。** Bot 当协调者，云电脑上常驻的 `codex app-server` 当干活的 agent，一个 low effort 的等待 subagent 让电脑在 Codex 干活时保持清醒。额度花在 Codex 干活上，不花在 bot 盯着上。
-
-**问题。** 正如 [@0xmomonifty](https://x.com/0xmomonifty/status/2115269648698716426) 说的：Grok Bot 驱动 Codex 时一直在“陪着”它。一轮一轮查进度，bot 自己的额度全花在陪 Codex 上；可要是 bot 撒手结束对话，没有 bot turn 在跑，云电脑就休眠，Codex 也跟着卡住。用 `block_until_ms: 0` 的后台命令也不行：后台命令不算 bot 活跃，电脑照样会休眠，把 Codex 冻住。设个查进度的 Routine 也不行：每次都是新 bot，从头读上下文，触发不准时，间隙里电脑还是会睡。
-
-**解法。**
-1. **常驻服务。** `codex app-server` 跑在 `ws://127.0.0.1:4500`（WebSocket JSON-RPC，只监听本机），tmux + watchdog 保活，健康检查 `/readyz`、`/healthz`。和 Codex CLI 共用登录和会话记录。
-2. **派给等待 subagent，完成后叫醒。** 和 [bot-keepalive](https://github.com/realTaki/bot-keepalive) 同一个思路：等待前台 tool call 返回的 turn 算活跃，单次 Shell 调用最长能阻塞 13 分钟。主 bot 把每个 Codex turn 交给一个 low effort 的等待 subagent，它在前台 Shell（`block_until_ms: 760000`）里跑会阻塞到 turn 结束的 `scripts/codex-turn`；13 分钟没返回，就对同一条命令接着前台等（AwaitShell），直到 Codex 跑完或到截止时间，再把 thread id、状态、最后一条回复、改动文件简短汇报给主 bot。主对话一直空闲，只在等待者结束时被叫醒一次。
-3. **中途转向、打断。** `turn/steer` 给正在跑的 turn 补指令；`turn/interrupt` 打断，会话还能接着用。注意打断不是硬停止：已经排上的命令可能还会执行，打断后先看一下工作区。
-4. **复用会话。** 每个项目 × 任务类型一个命名会话（`<bot>-<项目>-<任务类型>`），用 `thread/list` 找、`thread/resume` 接上、太长就压缩、做完就归档。同一个工作区永远只能有一个写入者。
-5. **多个任务并行。** 每个正在跑的 turn 配一个等待者，并行的 turn 各用各的 clone。任务很多时，如果 bot-keepalive 的全局守护已经在跑，也可以把 turn 脱离会话启动，把进程 PID 登记给它。
-
-**成本。** 每约 13 分钟一次 low effort tool call，和 bot-keepalive 一样（作者实测全天守护一天约 180 万 Token）。短的 Codex turn 只要一两次调用。
-
-**安全默认值。** 默认沙箱 `workspace-write` 且允许联网，审批策略 `on-request`：Codex 在项目目录里写文件，越界之前先问。模型用你自己 Codex 配置里的。完全权限只能显式开启：`CODEX_DELEGATE_FULL_ACCESS=1` 会改成 `danger-full-access` + 审批 `never`，这时 Codex 能读写你这个用户能碰到的任何文件，包括别处的 SSH 密钥、API token 和其他项目。只在一次性的机器、可信的任务上用。地址、目录、日志、tmux 会话名、模型都能用环境变量改，服务只监听本机（它没有鉴权）。
-
-**安装。** 把上面那个 `SKILL.md` 链接发给你的 Grok Bot，让它存成技能。技能会让 bot 在自己电脑上运行 `scripts/install-codex-app-server.sh`（可重复运行），需要先装好并登录 Codex CLI。等待者用的是 `scripts/codex-turn`（`codex_ws.py turn` 连续 15 分钟没有新事件就会放弃，可用 `--turn-timeout` 调；长任务用这个）。驱动脚本 `scripts/codex_ws.py`（只用标准库）负责 start / turn / steer / interrupt / list / read，地址用 `--host`/`--port` 或 `CODEX_WS_HOST`/`CODEX_WS_PORT`，模型用 `start --model` 或 `CODEX_WS_MODEL`（默认用服务端的）。驱动默认拒绝审批请求，`--approve accept` 才放行；`--danger-full-access` 同样只能显式开启。
-
-## License
-
-MIT
+The Codex workflow and scripts originate from [realTaki/bot-codex-delegate](https://github.com/realTaki/bot-codex-delegate), by Taki W. Its original MIT copyright and license are retained in [LICENSE](LICENSE); the Codex setup instructions here are adjusted for this repository. The Claude cloud skill and helper were developed separately for this combined repository.
