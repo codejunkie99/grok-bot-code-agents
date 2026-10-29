@@ -32,6 +32,7 @@ DEFAULT_SANDBOX = "workspace-write"
 DEFAULT_APPROVAL = "on-request"
 # Optional local registry of threads created by this script. Disabled unless set.
 DEFAULT_STATE = os.environ.get("CODEX_WS_STATE") or None
+DEFAULT_TURN_TIMEOUT = float(os.environ.get("CODEX_WS_TURN_TIMEOUT", "900"))  # idle seconds
 
 
 class WSClosed(Exception):
@@ -243,12 +244,14 @@ class Codex:
 
     def wait_turn(self, thread_id, turn_id=None, timeout=900, until=None):
         """Consume events until turn/completed for this thread (and turn id, if given).
-        `until(msg)` returning True stops early and returns that msg instead."""
+        `until(msg)` returning True stops early and returns that msg instead.
+        `timeout` is an idle timeout: it resets on every event received."""
         deadline = time.time() + timeout
         while True:
             m = self.next_event(timeout=max(0.1, deadline - time.time()))
             if m is None:
                 raise TimeoutError("turn did not complete")
+            deadline = time.time() + timeout  # activity: reset idle deadline
             if until and until(m):
                 return m
             p = m.get("params") or {}
@@ -303,6 +306,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Drive a running codex app-server over WebSocket JSON-RPC")
     ap.add_argument("--host", default=DEFAULT_HOST, help="app-server host (env CODEX_WS_HOST, default %(default)s)")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT, help="app-server port (env CODEX_WS_PORT, default %(default)s)")
+    ap.add_argument("--turn-timeout", type=float, default=DEFAULT_TURN_TIMEOUT, metavar="SEC",
+                    help="idle timeout for a turn: give up only after SEC seconds with no new events "
+                         "from the server (env CODEX_WS_TURN_TIMEOUT, default %(default)s)")
     ap.add_argument("--state", default=DEFAULT_STATE, metavar="FILE",
                     help="optional JSON registry of threads created by `start` (env CODEX_WS_STATE; off if unset)")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -386,7 +392,7 @@ def main(argv=None):
 
         while True:
             try:
-                done = c.wait_turn(a.thread, turn["id"], timeout=1 if a.interrupt_after and not interrupted else 900,
+                done = c.wait_turn(a.thread, turn["id"], timeout=1 if a.interrupt_after and not interrupted else a.turn_timeout,
                                    until=until)
                 break
             except TimeoutError:

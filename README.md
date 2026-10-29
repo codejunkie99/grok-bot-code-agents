@@ -70,7 +70,7 @@ What's in here:
 - [`skills/bot-codex-delegate/SKILL.md`](skills/bot-codex-delegate/SKILL.md): the workflow and rules for the bot.
 - [`scripts/install-codex-app-server.sh`](scripts/install-codex-app-server.sh): app-server in tmux + watchdog + `codex-app-server-ctl status|start|stop|restart|schema`, logs in `~/logs/`.
 - [`scripts/codex-sessions`](scripts/codex-sessions): list, find, name, compact and archive sessions (Python stdlib only).
-- [`scripts/codex-turn`](scripts/codex-turn): run one turn and block until it really finishes (up to `--max-hours`), then print a JSON summary with status, last agent message and changed files. This is what the waiter runs. `codex_ws.py turn` gives up after about 15 minutes, so use this for long turns.
+- [`scripts/codex-turn`](scripts/codex-turn): run one turn and block until it really finishes (up to `--max-hours`), then print a JSON summary with status, last agent message and changed files. This is what the waiter runs. `codex_ws.py turn` gives up after 15 minutes with no new event (configurable with `--turn-timeout`), so use this for long turns that may go quiet, or to cap a turn by wall-clock time.
 - [`scripts/codex_ws.py`](scripts/codex_ws.py): stdlib-only driver for start / turn / steer / interrupt / list / read ([docs](scripts/codex_ws.README.md)).
 
 ```bash
@@ -102,7 +102,7 @@ Driver settings: `--host`/`--port` (`CODEX_WS_HOST`/`CODEX_WS_PORT`, default `12
 
 **安全默认值。** 默认沙箱 `workspace-write` 且允许联网，审批策略 `on-request`：Codex 在项目目录里写文件，越界之前先问。模型用你自己 Codex 配置里的。完全权限只能显式开启：`CODEX_DELEGATE_FULL_ACCESS=1` 会改成 `danger-full-access` + 审批 `never`，这时 Codex 能读写你这个用户能碰到的任何文件，包括别处的 SSH 密钥、API token 和其他项目。只在一次性的机器、可信的任务上用。地址、目录、日志、tmux 会话名、模型都能用环境变量改，服务只监听本机（它没有鉴权）。
 
-**安装。** 把上面那个 `SKILL.md` 链接发给你的 Grok Bot，让它存成技能。技能会让 bot 在自己电脑上运行 `scripts/install-codex-app-server.sh`（可重复运行），需要先装好并登录 Codex CLI。等待者用的是 `scripts/codex-turn`（`codex_ws.py turn` 大约 15 分钟就会超时放弃，长任务用这个）。驱动脚本 `scripts/codex_ws.py`（只用标准库）负责 start / turn / steer / interrupt / list / read，地址用 `--host`/`--port` 或 `CODEX_WS_HOST`/`CODEX_WS_PORT`，模型用 `start --model` 或 `CODEX_WS_MODEL`（默认用服务端的）。驱动默认拒绝审批请求，`--approve accept` 才放行；`--danger-full-access` 同样只能显式开启。
+**安装。** 把上面那个 `SKILL.md` 链接发给你的 Grok Bot，让它存成技能。技能会让 bot 在自己电脑上运行 `scripts/install-codex-app-server.sh`（可重复运行），需要先装好并登录 Codex CLI。等待者用的是 `scripts/codex-turn`（`codex_ws.py turn` 连续 15 分钟没有新事件就会放弃，可用 `--turn-timeout` 调；长任务用这个）。驱动脚本 `scripts/codex_ws.py`（只用标准库）负责 start / turn / steer / interrupt / list / read，地址用 `--host`/`--port` 或 `CODEX_WS_HOST`/`CODEX_WS_PORT`，模型用 `start --model` 或 `CODEX_WS_MODEL`（默认用服务端的）。驱动默认拒绝审批请求，`--approve accept` 才放行；`--danger-full-access` 同样只能显式开启。
 
 ## License
 

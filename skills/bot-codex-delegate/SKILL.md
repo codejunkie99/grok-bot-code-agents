@@ -85,9 +85,10 @@ python3 $D --state threads.json saved               # optional local registry (s
 - `start --danger-full-access` (and `--approval never`) are opt-in only and need the user's
   explicit OK: Codex could then read, change or send any file the server's user can reach.
 - `turn` resumes the thread first, prints the `turnId` right away, and exits 0 on `completed` or
-  `interrupted`. It blocks until `turn/completed`, **but gives up with `TimeoutError` after about
-  15 minutes in total** (same for `start ... "<prompt>"`). Fine for short turns; for anything
-  longer use `codex-turn` below.
+  `interrupted`. It blocks until `turn/completed`, **but gives up with `TimeoutError` after
+  `--turn-timeout` seconds (default 900, env `CODEX_WS_TURN_TIMEOUT`) with no new event** (same
+  for `start ... "<prompt>"`; it's a global option, so put it before the subcommand). A turn that
+  keeps streaming won't be cut off, but for long turns the waiter should still use `codex-turn`.
 
 ### Long turns: `scripts/codex-turn`
 A small wrapper over `codex_ws.py` (imported as a library, same `--host`/`--port`, env vars and

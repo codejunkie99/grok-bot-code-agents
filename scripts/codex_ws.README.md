@@ -24,10 +24,11 @@ or import it as a library.
 |---|---|---|---|
 | Host | `--host` | `CODEX_WS_HOST` | `127.0.0.1` |
 | Port | `--port` | `CODEX_WS_PORT` | `4500` |
+| Turn idle timeout (seconds) | `--turn-timeout` | `CODEX_WS_TURN_TIMEOUT` | `900` |
 | Model | `start --model` | `CODEX_WS_MODEL` | server default (not sent) |
 | Thread registry file | `--state` | `CODEX_WS_STATE` | off |
 
-Global flags (`--host`, `--port`, `--state`, `-v`, `--approve`) go **before** the subcommand.
+Global flags (`--host`, `--port`, `--turn-timeout`, `--state`, `-v`, `--approve`) go **before** the subcommand.
 Events stream to stderr; JSON results go to stdout.
 
 ## Subcommands
@@ -55,6 +56,11 @@ python3 codex_ws.py turn <threadId> "long task" --interrupt-after 120
 Calls `thread/resume` first, then `turn/start`, and streams until `turn/completed`. It prints the
 `turnId` right away and ends with `{"turnId", "status", "error", "durationMs", "finalMessage"}`. The exit code
 is 0 when the status is `completed` or `interrupted`. `--steer` sends its text once the first command starts.
+
+The wait uses an **idle** timeout, not a total wall-clock cap: `--turn-timeout SEC` (env `CODEX_WS_TURN_TIMEOUT`,
+default 900) gives up only after SEC seconds with no new events from the server. Long turns are never killed
+while Codex is still streaming. It is a global option, so put it before the subcommand:
+`python3 codex_ws.py --turn-timeout 1800 turn <threadId> "..."`.
 
 ### `steer`: add input to an active turn (from another process)
 

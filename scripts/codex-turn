@@ -2,8 +2,8 @@
 """codex-turn: run ONE Codex turn and block until it really finishes (stdlib only).
 
 Built on scripts/codex_ws.py (imported as a library, same flags and env vars). Unlike
-`codex_ws.py turn`, which gives up with TimeoutError after ~15 minutes in total, this keeps one
-connection open and waits as long as the turn runs, up to --max-hours. Made for a waiter
+`codex_ws.py turn`, which gives up after --turn-timeout seconds (default 900) with no new event,
+this keeps one connection open and waits through any quiet stretch, up to --max-hours. Made for a waiter
 subagent that sits in a foreground Shell call so the computer stays awake.
 
   codex-turn <threadId> "<prompt>" [--effort E]                 # existing thread (resumed first)
