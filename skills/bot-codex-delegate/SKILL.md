@@ -22,7 +22,7 @@ stays free, and the main bot wakes once, when the waiter reports back. The quota
 doing the work, plus one cheap tool call per ~13 minutes.
 
 ## 1. Setup (once per computer)
-Codex CLI must be installed and logged in. Clone only if the checkout does not already exist, then:
+Codex CLI must be installed and signed in with the user's ChatGPT account. Check `codex login status` and confirm it reports ChatGPT, rather than API-key authentication. If not, guide the user through `codex login` or `codex login --device-auth` using the supported secure sign-in flow. Never ask for credentials in chat, and don't silently log out an existing account. If a custom provider or configuration prevents subscription use, report it and ask before changing it. Clone only if the checkout does not already exist, then:
 
 ```bash
 git clone https://github.com/codejunkie99/grok-bot-code-agents ~/grok-bot-code-agents
@@ -30,7 +30,7 @@ bash ~/grok-bot-code-agents/scripts/install-codex-app-server.sh
 ~/.local/bin/codex-app-server-ctl status
 ```
 
-The installer is idempotent. It runs `codex app-server --listen ws://127.0.0.1:4500` in a tmux
+The installer is idempotent. It removes `OPENAI_API_KEY` and `CODEX_API_KEY` from the server process environment to avoid API-key overrides; verify the existing login and provider configuration before starting. It runs `codex app-server --listen ws://127.0.0.1:4500` in a tmux
 session, adds a watchdog that recreates the session or kills a hung server, a control script
 (`codex-app-server-ctl status|start|stop|restart|schema`), logs under `~/logs/`, and the
 `codex-sessions` helper. Settings come from env vars (see the script header) and are saved to

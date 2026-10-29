@@ -112,7 +112,8 @@ while true; do
   cda_server_args
   cda_log keep "starting: codex app-server ${CDA_ARGS[*]} --listen ${CDA_URL}"
   t0=$(date +%s)
-  "$CDA_CODEX" app-server "${CDA_ARGS[@]}" --listen "$CDA_URL" >> "$CDA_LOG" 2>&1 &
+  # Subscription login is the default: never inherit API-key environment overrides.
+  env -u OPENAI_API_KEY -u CODEX_API_KEY "$CDA_CODEX" app-server "${CDA_ARGS[@]}" --listen "$CDA_URL" >> "$CDA_LOG" 2>&1 &
   wait $!; rc=$?
   ran=$(( $(date +%s) - t0 )); [ "$ran" -ge 120 ] && backoff=5
   cda_log keep "app-server exited rc=$rc after ${ran}s; restart in ${backoff}s"

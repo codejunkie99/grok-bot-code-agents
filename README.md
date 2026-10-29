@@ -1,57 +1,49 @@
 # Grok Bot Code Agents
 
-Give Grok Bot two ways to delegate coding work: a **Codex worker** on its cloud computer and **Claude Code cloud sessions** on Anthropic's infrastructure.
+Delegate coding tasks from Grok Bot to Codex, Claude Code cloud sessions, and OpenCode. Codex and Claude use your subscription account login by default; no API key or scheduled-task trigger token is needed for either.
 
 ## One prompt to set it up
 
 Paste this into a Grok Bot conversation:
 
 ```text
-Set up both coding delegation skills from https://github.com/codejunkie99/grok-bot-code-agents for my Grok Bot.
+Set up the coding delegation skills from https://github.com/codejunkie99/grok-bot-code-agents for my Grok Bot.
 
-Read the README and both SKILL.md files. Clone the repository to ~/grok-bot-code-agents (reuse an existing checkout without overwriting my changes), and save both skills by name in my Grok Bot private skill library. Keep the clone so the skills can use its scripts. If skill creation is unavailable, tell me exactly what to do instead of claiming it worked.
+Read the README and all three SKILL.md files. Clone the repository to ~/grok-bot-code-agents, or reuse the existing checkout without overwriting my changes. Save the three skills by name in my Grok Bot private skill library. Keep the clone for the Codex scripts. If skill creation is unavailable, tell me what to do rather than claiming it worked.
 
-For Codex, check whether the CLI is installed and logged in, whether tmux, flock, curl and the other Linux prerequisites are available, and whether a server is already running. Follow the repository's safe-default setup. If something is missing, help me install it or sign in using the supported secure flow. Do not enable full access or change my existing server without asking. Check and report whether the server is ready.
+For Codex, use my ChatGPT subscription login, not an API key. Check the CLI and its login status, Linux prerequisites, and any existing server. Help me sign in securely if needed. Use the safe-default installer only if a suitable server is not already running, and check whether it becomes ready. Do not enable full access or change an existing server without asking.
 
-For Claude, guide me through creating an API-triggered Claude Code scheduled task, connecting the right repository, and securely providing its fire URL and token for use by the helper. Never ask me to paste a token into chat or print it. Check the Claude CLI login if follow-ups are wanted. Report anything that still needs my action.
+For Claude Code, use my Claude subscription login and the official CLI cloud-session workflow. Check the CLI and account login; help me sign in securely if needed. Help me connect the right repository and check that cloud sessions are enabled. Do not require an API key or a scheduled-task trigger token. Report any step that needs me or cannot be verified.
 
-Do not launch a coding task, push changes, create a pull request, or spend usage on a live test until I give you a task. Finish by listing what is installed, what is ready, and any remaining setup steps.
+For OpenCode, check the CLI and whether OpenCode Go is already configured without exposing credentials. OpenCode Go's documented provider setup requires an OpenCode API key: do not create, request, or paste one on my behalf. If Go isn't configured, explain that limitation and leave it pending. Do not silently switch to another provider or billing method.
+
+Never ask me to paste passwords or tokens into chat. Do not launch a coding task, push changes, create a pull request, or spend usage on a live test until I give you a task. Finish by listing the skills installed, each worker's verified readiness, and any remaining setup steps.
 ```
 
-One prompt starts the setup; provider login, repository access, and creating a Claude API trigger may require you to complete steps in the relevant account. Grok Bot can save skills across its bots using its [private skill library](https://docs.x.ai/grok-bot/skills-routines-and-automations#save-a-skill). Installation and live cloud execution have not yet been verified in Grok Bot.
+One prompt starts setup; provider sign-in, repository access, or private skill creation may require your action. Grok Bot can save skills in its [private skill library](https://docs.x.ai/grok-bot/skills-routines-and-automations#save-a-skill). This setup has not been tested end to end inside Grok Bot.
 
 ## Choose a worker
 
-| | Codex | Claude Code cloud |
-|---|---|---|
-| Where work runs | Codex app-server on the Grok Bot computer | Claude Code cloud session |
-| Dispatch | Local app-server and Python driver | Scheduled-task API trigger |
-| Follow-up | Steer or interrupt; resume named sessions | Queue a message with the logged-in Claude CLI |
-| Completion | A waiter observes the Codex turn and reports back | Open the session link; the documented trigger API does not report completion |
-| Needs | Codex CLI login; Linux environment with `tmux`, `flock`, `curl`, `ss` and Python 3 | Eligible Claude account, configured cloud scheduled task and per-trigger token; Claude CLI login for follow-ups |
+| | Codex | Claude Code cloud | OpenCode / Go |
+|---|---|---|---|
+| Where work runs | Codex app-server on the Grok Bot computer | Claude Code cloud session | OpenCode CLI on the Grok Bot computer |
+| Authentication | ChatGPT account subscription login | Claude account subscription login | Provider-dependent; Go requires its own OpenCode API key |
+| Start | Local app-server and driver | `claude --cloud "task"` from a repository | `opencode run --model provider/model "task"` |
+| Completion | A waiter can observe the local turn | Review the cloud session; documented CLI follow-up queues a message and exits | A waiter can observe the local process |
+| Needs | Codex CLI, an eligible account, Linux, `tmux`, `flock`, `curl`, `ss`, Python 3 | Claude CLI, an eligible account with cloud sessions enabled, repository access | OpenCode CLI and a configured provider and model |
 
-The Codex waiter keeps the Bot computer active while the locally running worker operates. A Claude cloud session runs independently of that computer. A Claude trigger response means the session was created, not that the work succeeded. The trigger is experimental, and each successful request creates a new session; do not automatically retry an ambiguous request. See [Claude's API documentation](https://platform.claude.com/docs/en/api/claude-code/routines-fire) and [cloud session docs](https://code.claude.com/docs/en/claude-code-on-the-web).
+A Claude cloud session runs independently of the Bot computer. Codex and OpenCode run locally on that computer and may need a foreground waiter to keep it active. A task being launched is not evidence of completion. Account limits and optional extra-usage charges can apply.
 
-## Manual setup and usage
+OpenCode Go is subscription-based, but its [documented connection](https://opencode.ai/docs/providers/#opencode-go) uses an OpenCode API key. This is a provider credential, not necessarily pay-as-you-go billing. If you require OAuth without a key, Go cannot currently be set up that way using the documented flow. An already configured Go connection can be used without putting the key in your prompt; other OpenCode providers may offer OAuth but are not Go.
 
-Read [the Codex skill](skills/bot-codex-delegate/SKILL.md) and [the Claude cloud skill](skills/bot-claude-cloud-delegate/SKILL.md). The Codex installer is intended for the Linux environment described above and listens on loopback only. It defaults to workspace-write and on-request approvals; full access is opt-in. The Codex driver declines approval requests unless configured otherwise. The Claude scheduled task's repository, permissions, connectors, and environment govern what a session can do. Never put credentials into prompts or the repository.
+## Use the skills
 
-For Claude, set `CLAUDE_ROUTINE_FIRE_URL` and `CLAUDE_ROUTINE_TOKEN` in the helper's execution environment using your platform's secure credential flow. The variables must be available in the same process that runs the helper. A typical dispatch looks like this:
+- [Codex delegation](skills/bot-codex-delegate/SKILL.md): sign in with ChatGPT, run the local app-server, resume sessions, and steer or interrupt turns.
+- [Claude Code cloud delegation](skills/bot-claude-cloud-delegate/SKILL.md): sign in with Claude, start a cloud session with `claude --cloud`, and queue a follow-up to an existing session.
+- [OpenCode delegation](skills/bot-opencode-delegate/SKILL.md): use a configured OpenCode provider, run a task, and continue an existing session.
 
-```bash
-python3 ~/grok-bot-code-agents/skills/bot-claude-cloud-delegate/scripts/fire.py <<'TASK'
-Inspect the repository and implement the requested change. Run relevant tests.
-TASK
-```
-
-The helper prints a session ID and URL when creation succeeds. Open the URL to follow progress and review results. For a follow-up, use the Claude CLI signed in to the same Claude account:
-
-```bash
-printf '%s' 'Please also check the regression tests.' | claude -p --cloud SESSION_ID --output-format json
-```
-
-This queues the message and does not wait for an answer. Consult the two skills for detailed instructions, failure handling, and limits. The original Codex project documentation is retained at [docs/UPSTREAM-CODEX.md](docs/UPSTREAM-CODEX.md).
+The Codex installer is for a Linux environment and listens on loopback only. It defaults to workspace-write and on-request approvals; full access is opt-in. It clears common API-key environment overrides from the app-server process; a user's configured provider and login still need checking. The CLI driver declines approval requests unless configured otherwise. The Claude CLI can upload a local repository bundle in some cases, so check which data will be sent before starting a session. Never put credentials into prompts or the repository.
 
 ## Credits and license
 
-The Codex workflow and scripts originate from [realTaki/bot-codex-delegate](https://github.com/realTaki/bot-codex-delegate), by Taki W. Its original MIT copyright and license are retained in [LICENSE](LICENSE); the Codex setup instructions here are adjusted for this repository. The Claude cloud skill and helper were developed separately for this combined repository.
+The Codex workflow and scripts originate from [realTaki/bot-codex-delegate](https://github.com/realTaki/bot-codex-delegate), by Taki W. Its original MIT copyright and license are retained in [LICENSE](LICENSE); the Codex setup instructions and installer here are adjusted for this repository. The Claude and OpenCode skills were developed separately for this combined repository. The original Codex project README is retained at [docs/UPSTREAM-CODEX.md](docs/UPSTREAM-CODEX.md).
